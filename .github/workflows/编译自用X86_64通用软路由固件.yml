@@ -95,6 +95,10 @@ jobs:
         find dl -size -1024c -exec rm -f {} \;
 
   编译OpenWrt:
+    needs: [构建环境]
+    runs-on: ubuntu-18.04
+
+    steps:
     - name: 编译OpenWrt软件包
       id: compile
       run: |
@@ -162,6 +166,10 @@ jobs:
         zip -q -r packages-server.zip pre-packages-server/server
 
   上传固件:
+    needs: [编译OpenWrt]
+    runs-on: ubuntu-18.04
+
+    steps:
     - name: 上传配置文件
       uses: actions/upload-artifact@master
       if: steps.generate.outputs.status == 'success'
@@ -218,8 +226,11 @@ jobs:
         curl -fsSL git.io/file-transfer | sh
         ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
         echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
-       
   编译完毕:
+    needs: [上传固件]
+    runs-on: ubuntu-18.04
+
+    steps:
     - name: 编译完毕
       if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
       run: |
