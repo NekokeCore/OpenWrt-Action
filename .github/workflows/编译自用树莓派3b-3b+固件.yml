@@ -37,7 +37,7 @@ env:
   TZ: Asia/Shanghai
 
 jobs:
-  构建环境:
+  SetupBuildEnvironment:
     runs-on: ubuntu-18.04
     if: github.event.repository.owner.id == github.event.sender.id
 
@@ -94,8 +94,8 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-  编译OpenWrt:
-    needs: [构建环境]
+  BuildOpenWrt:
+    needs: [SetupBuildEnvironment]
     runs-on: ubuntu-18.04
 
     steps:
@@ -165,8 +165,8 @@ jobs:
         cd $OPENWRTROOT/bin/targets/$TARGET/$SUBTARGET
         zip -q -r packages-server.zip pre-packages-server/server
 
-  上传固件:
-    needs: [编译OpenWrt]
+  UploadFirmware:
+    needs: [BuildOpenWrt]
     runs-on: ubuntu-18.04
 
     steps:
@@ -226,8 +226,8 @@ jobs:
         curl -fsSL git.io/file-transfer | sh
         ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
         echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
-  编译完毕:
-    needs: [上传固件]
+  Done:
+    needs: [UploadFirmware]
     runs-on: ubuntu-18.04
 
     steps:
