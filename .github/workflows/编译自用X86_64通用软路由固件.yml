@@ -6,7 +6,9 @@
 # Blog: https://p3terx.com
 #=================================================
 
-name: Build Offical OpenWrt
+name: 编译自用树莓派3b/3b+固件
+
+name: 编译自用X86_64通用软路由固件
 
 on:
   repository_dispatch:
@@ -16,17 +18,17 @@ on:
     branches:
       - master
     paths:
-      - 'config/offical/*.config'
+      - 'config/lean/自用X86_64.config'
 #  schedule:
 #    - cron: 0 8 * * 5
 #  watch:
 #    types: started
 
 env:
-  REPO_URL: https://github.com/openwrt/openwrt
+  REPO_URL: https://github.com/coolsnowwolf/lede
   REPO_BRANCH: master
-  CONFIG_FILE: config/offical/*.config
-  DIY_SH: scripts/offical-openwrt.sh
+  CONFIG_FILE: config/lean/自用X86_64.config
+  DIY_SH: scripts/lean-openwrt.sh
   FEEDS_CONF: feeds.conf.default
   SSH_ACTIONS: false
   KMODS_IN_FIRMWARE: false
@@ -42,10 +44,10 @@ jobs:
     if: github.event.repository.owner.id == github.event.sender.id
 
     steps:
-    - name: Checkout
+    - name: 检查环境
       uses: actions/checkout@master
 
-    - name: Initialization Environment
+    - name: 构建编译环境
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
@@ -56,24 +58,23 @@ jobs:
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone Source Code
+    - name: 克隆Lean大源码
       run: |
         df -hT $PWD
         git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
-    - name: Update Feeds
+    - name: 更新OpenWrt Feeds包
       run: |
         cd openwrt
         echo "::set-env name=OPENWRTROOT::$PWD"
-        sed -i 's/luci.git/luci.git\;openwrt-19.07/g' feeds.conf.default
         ./scripts/feeds update -a
 
-    - name: Install Feeds
+    - name: 安装OpenWrt Feeds包
       run: |
         cd $OPENWRTROOT
         ./scripts/feeds install -a
 
-    - name: Load Custom Configuration
+    - name: 加载自定义配置
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
         [ -e files ] && mv files $OPENWRTROOT/files
@@ -81,15 +82,12 @@ jobs:
         chmod +x $DIY_SH
         cd $OPENWRTROOT
         ../$DIY_SH
-        ## If your device is Raspberrt Pi 4B:
-        # chmod +x ../scripts/enable-rpi4-wifi.sh
-        # ../scripts/enable-rpi4-wifi.sh
 
-    - name: SSH Connection To Actions
+    - name: 开启SSH连接到Action机器
       uses: P3TERX/debugger-action@master
       if: env.SSH_ACTIONS == 'true' || contains(github.event.action, 'ssh')
 
-    - name: Download Package
+    - name: 下载OpenWrt软件包
       id: package
       run: |
         cd $OPENWRTROOT
@@ -102,7 +100,7 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    - name: Compile Packages
+    - name: 编译OpenWrt软件包
       id: compile
       run: |
         cd $OPENWRTROOT
@@ -110,12 +108,12 @@ jobs:
         make tools/compile -j$(nproc) || make tools/compile -j1 V=s
         make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
         make target/compile -j$(nproc) || make target/compile -j1 V=s IGNORE_ERRORS=1
-        make buildinfo
+        make diffconfig
         make package/compile -j$(nproc) IGNORE_ERRORS=1 || make package/compile -j1 V=s IGNORE_ERRORS=1
         make package/index
         echo "::set-output name=status::success"
 
-    - name: Set Environment Variable
+    - name: 设置编译环境变量
       if: steps.compile.outputs.status == 'success'
       run: |
         cd $OPENWRTROOT/bin/packages/*
@@ -129,7 +127,7 @@ jobs:
         echo "::set-env name=SUBTARGET::$SUBTARGET"
         echo "::set-env name=FIRMWARE::$PWD"
 
-    - name: Generate Firmware
+    - name: 编译/生成OpenWrt固件
       if: steps.compile.outputs.status == 'success'
       id: generate
       run: |
@@ -139,12 +137,12 @@ jobs:
         then
             mkdir -p files/www/snapshots/targets
             cp -r bin/targets/$TARGET files/www/snapshots/targets
-            cp ../config/opkg/distfeeds-19.07-local.conf files/etc/opkg/distfeeds.conf
+            cp ../config/opkg/distfeeds-18.06-local.conf files/etc/opkg/distfeeds.conf
             sed -i "s/subtarget/$SUBTARGET/g" files/etc/opkg/distfeeds.conf
             sed -i "s/target\//$TARGET\//g" files/etc/opkg/distfeeds.conf
             sed -i "s/platform/$PLATFORM/g" files/etc/opkg/distfeeds.conf
         else
-            cp ../config/opkg/distfeeds-19.07-remote.conf files/etc/opkg/distfeeds.conf
+            cp ../config/opkg/distfeeds-18.06-remote.conf files/etc/opkg/distfeeds.conf
             sed -i "s/subtarget/$SUBTARGET/g" files/etc/opkg/distfeeds.conf
             sed -i "s/target\//$TARGET\//g" files/etc/opkg/distfeeds.conf
             sed -i "s/platform/$PLATFORM/g" files/etc/opkg/distfeeds.conf
@@ -157,7 +155,7 @@ jobs:
         echo "::set-env name=FILE_DATE::_$(date +"%Y%m%d%H%M")"
         echo "::set-output name=status::success"
         
-    - name: Deploy Packages-Server
+    - name: 部署 Packages-Server
       if: steps.generate.outputs.status == 'success'
       run: |
         mkdir -p server/web/snapshots/targets/$TARGET/$SUBTARGET
@@ -168,35 +166,35 @@ jobs:
         cd $OPENWRTROOT/bin/targets/$TARGET/$SUBTARGET
         zip -q -r packages-server.zip pre-packages-server/server
         
-    - name: Upload Config
+    - name: 上传配置文件
       uses: actions/upload-artifact@master
       if: steps.generate.outputs.status == 'success'
       with:
-        name: config.buildinfo
-        path: openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/config.buildinfo
+        name: config.seed
+        path: openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/config.seed
         
-    - name: Upload Packages-Server
+    - name: 上传 Packages-Server
       uses: actions/upload-artifact@master
       if: steps.generate.outputs.status == 'success'
       with:
         name: packages-server
         path: openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/pre-packages-server
         
-    - name: Upload Images Sha256sums
+    - name: 上传固件映像的 Sha256sums 校验文件
       uses: actions/upload-artifact@master
       if: steps.generate.outputs.status == 'success'
       with:
         name: sha256sums
         path: openwrt/bin/targets/${{ env.TARGET }}/${{ env.SUBTARGET }}/sha256sums
         
-    - name: Upload Bin Directory
+    - name: 上传 Bin 文件夹
       uses: actions/upload-artifact@master
       if: steps.generate.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: openwrt-bin-directory${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: openwrt/bin
 
-    - name: Organize Files
+    - name: 合并文件
       id: organize
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
@@ -204,23 +202,28 @@ jobs:
         rm -rf packages pre-packages-server
         echo "::set-output name=status::success"
 
-    - name: Upload Firmware Directory
+    - name: 上传固件文件夹
       uses: actions/upload-artifact@master
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: openwrt-firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
 
-    - name: Upload Firmware To CowTransfer
+    - name: 上传固件到奶牛快传
       if: steps.organize.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
       run: |
         curl -fsSL git.io/file-transfer | sh
         ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
         echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
 
-    - name: Upload Firmware To WeTransfer
+    - name: 上传固件到 Wetransfer
       if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
       run: |
         curl -fsSL git.io/file-transfer | sh
         ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
         echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
+
+    - name: 编译完毕
+      if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
+      run: |
+        echo All Done！
